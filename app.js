@@ -1159,6 +1159,8 @@ async function initApp() {
   await loadCurrency();
   injectHeader();
   await loadHeaderStoreName();
+  if (typeof loadLanguage === 'function') await loadLanguage();
+  if (typeof initSync     === 'function') await initSync();
   startClock();
   initSidebar();
   initVirtualKeyboard();
@@ -1489,3 +1491,565 @@ function notifPasswordChange(username) {
 // ── AUTO-INIT — POS DZ v7.0.0
 // ═══════════════════════════════════════════════════════════════
 document.addEventListener('DOMContentLoaded', initApp);
+
+// ================================================================
+//  POS DZ v7.0.0 — addon.js  |  الوظائف الإضافية
+//  يُضاف هذا الملف إلى نهاية app.js
+// ================================================================
+
+// ── i18n — نظام الترجمة ─────────────────────────────────────────
+const TRANSLATIONS = {
+  ar: {
+    navSale:'واجهة البيع', navInventory:'المخزون', navCustomers:'الزبائن',
+    navReports:'إدارة الأعمال', navSuppliers:'الموردين', navUsers:'المستخدمين',
+    navSettings:'الإعدادات', navLogout:'تسجيل الخروج',
+    product:'المنتج', qty:'الكمية', total:'الإجمالي', price:'السعر',
+    discount:'خصم', paid:'المدفوع', change:'الباقي', customer:'الزبون',
+    sell:'تسديد', partialDebt:'جزئي + دين', fullDebt:'دين كامل',
+    print:'طباعة', close:'إغلاق', save:'حفظ', cancel:'إلغاء', add:'إضافة',
+    edit:'تعديل', delete:'حذف', search:'بحث', noCustomer:'— بدون زبون —',
+    emptyCart:'السلة فارغة — ابحث عن منتج أو امسح الباركود',
+    invoice:'فاتورة', stock:'المخزون', family:'العائلة', barcode:'الباركود',
+    buyPrice:'سعر الشراء', sellPrice:'سعر البيع', expiry:'انتهاء الصلاحية',
+    name:'الاسم', phone:'الهاتف', address:'العنوان', email:'البريد',
+    debt:'الدين', supplier:'المورد', user:'المستخدم', role:'الدور',
+    password:'كلمة المرور', active:'نشط', inactive:'غير نشط',
+    scale:'الميزان', error:'خطأ', success:'نجاح', warning:'تحذير',
+    searchProduct:'ابحث عن منتج أو امسح الباركود...', language:'اللغة',
+    settings:'الإعدادات', reports:'التقارير', today:'اليوم', week:'الأسبوع',
+    month:'الشهر', year:'السنة', salesTotal:'إجمالي المبيعات',
+    debtTotal:'إجمالي الديون', profit:'الربح', cost:'التكلفة',
+    confirm:'تأكيد', yes:'نعم', no:'لا',
+  },
+  fr: {
+    navSale:'Point de vente', navInventory:'Inventaire', navCustomers:'Clients',
+    navReports:'Gestion', navSuppliers:'Fournisseurs', navUsers:'Utilisateurs',
+    navSettings:'Paramètres', navLogout:'Déconnexion',
+    product:'Produit', qty:'Qté', total:'Total', price:'Prix',
+    discount:'Remise', paid:'Payé', change:'Rendu', customer:'Client',
+    sell:'Encaisser', partialDebt:'Partiel + Dette', fullDebt:'Dette totale',
+    print:'Imprimer', close:'Fermer', save:'Sauvegarder', cancel:'Annuler',
+    add:'Ajouter', edit:'Modifier', delete:'Supprimer', search:'Rechercher',
+    noCustomer:'— Sans client —', emptyCart:'Panier vide',
+    invoice:'Facture', stock:'Stock', family:'Famille', barcode:'Code-barres',
+    buyPrice:'Prix achat', sellPrice:'Prix vente', expiry:'Expiration',
+    name:'Nom', phone:'Téléphone', address:'Adresse', email:'E-mail',
+    debt:'Dette', supplier:'Fournisseur', user:'Utilisateur', role:'Rôle',
+    password:'Mot de passe', active:'Actif', inactive:'Inactif',
+    scale:'Balance', error:'Erreur', success:'Succès', warning:'Avertissement',
+    searchProduct:'Rechercher produit ou scanner...', language:'Langue',
+    settings:'Paramètres', reports:'Rapports', today:"Aujourd'hui",
+    week:'Semaine', month:'Mois', year:'Année',
+    salesTotal:'Total ventes', debtTotal:'Total dettes', profit:'Bénéfice',
+    cost:'Coût', confirm:'Confirmer', yes:'Oui', no:'Non',
+  },
+  en: {
+    navSale:'Point of Sale', navInventory:'Inventory', navCustomers:'Customers',
+    navReports:'Business', navSuppliers:'Suppliers', navUsers:'Users',
+    navSettings:'Settings', navLogout:'Logout',
+    product:'Product', qty:'Qty', total:'Total', price:'Price',
+    discount:'Discount', paid:'Paid', change:'Change', customer:'Customer',
+    sell:'Checkout', partialDebt:'Partial + Debt', fullDebt:'Full Debt',
+    print:'Print', close:'Close', save:'Save', cancel:'Cancel',
+    add:'Add', edit:'Edit', delete:'Delete', search:'Search',
+    noCustomer:'— No customer —', emptyCart:'Cart is empty',
+    invoice:'Invoice', stock:'Stock', family:'Family', barcode:'Barcode',
+    buyPrice:'Buy Price', sellPrice:'Sell Price', expiry:'Expiry',
+    name:'Name', phone:'Phone', address:'Address', email:'Email',
+    debt:'Debt', supplier:'Supplier', user:'User', role:'Role',
+    password:'Password', active:'Active', inactive:'Inactive',
+    scale:'Scale', error:'Error', success:'Success', warning:'Warning',
+    searchProduct:'Search product or scan barcode...', language:'Language',
+    settings:'Settings', reports:'Reports', today:'Today',
+    week:'Week', month:'Month', year:'Year',
+    salesTotal:'Total Sales', debtTotal:'Total Debts', profit:'Profit',
+    cost:'Cost', confirm:'Confirm', yes:'Yes', no:'No',
+  }
+};
+
+let _currentLang = 'ar';
+
+function _i18n(key) {
+  return (TRANSLATIONS[_currentLang] || TRANSLATIONS['ar'])[key] || key;
+}
+
+async function setLanguage(lang, save = true) {
+  if (!TRANSLATIONS[lang]) return;
+  _currentLang = lang;
+  const dir = lang === 'ar' ? 'rtl' : 'ltr';
+  document.documentElement.lang = lang;
+  document.documentElement.dir  = dir;
+  document.body.dir = dir;
+  // Update all [data-i18n] elements
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    const key = el.getAttribute('data-i18n');
+    const val = _i18n(key);
+    if (val) el.textContent = val;
+  });
+  document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+    const key = el.getAttribute('data-i18n-placeholder');
+    const val = _i18n(key);
+    if (val) el.placeholder = val;
+  });
+  if (save) await setSetting('language', lang);
+  document.dispatchEvent(new CustomEvent('langChanged', { detail: lang }));
+}
+
+async function loadLanguage() {
+  const lang = await getSetting('language') || 'ar';
+  await setLanguage(lang, false);
+}
+
+// ── verifyPassword — دعم SHA-256 والنص العادي ───────────────────
+async function verifyPassword(plain, stored) {
+  if (!plain || !stored) return false;
+  // Direct match (legacy plain text)
+  if (plain === stored) return true;
+  // SHA-256 match
+  const hashed = hashPassword(plain);
+  if (hashed === stored) return true;
+  // Async SHA-256 via SubtleCrypto
+  try {
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(plain));
+    const hex = Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+    if (hex === stored) return true;
+  } catch(e) {}
+  return false;
+}
+
+// ── Audit Log ───────────────────────────────────────────────────
+async function logAudit(type, action, data) {
+  try {
+    const user = getSession();
+    await dbAdd('settings', {
+      key: 'audit_' + Date.now() + '_' + Math.random().toString(36).slice(2),
+      value: JSON.stringify({
+        type, action, data,
+        userId: user ? user.id : null,
+        username: user ? user.username : 'unknown',
+        date: new Date().toISOString()
+      })
+    });
+  } catch(e) { /* silent fail */ }
+}
+
+// ── Firebase Sync — Stub (works offline-first) ──────────────────
+let _syncEnabled = false;
+let _firebaseUrl  = '';
+let _firebaseKey  = '';
+
+async function initSync() {
+  _syncEnabled = await getSetting('syncEnabled') === '1';
+  _firebaseUrl  = await getSetting('firebaseUrl')  || '';
+  _firebaseKey  = await getSetting('firebaseKey')  || '';
+}
+
+async function syncPush(collection, record) {
+  if (!_syncEnabled || !_firebaseUrl || !record) return;
+  try {
+    const url = _firebaseUrl.replace(/\/$/, '') + '/' + collection + '/' + record.id + '.json'
+              + (_firebaseKey ? '?auth=' + _firebaseKey : '');
+    await fetch(url, {
+      method : 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body   : JSON.stringify(record)
+    });
+  } catch(e) { /* offline — ignore */ }
+}
+
+async function syncDelete(collection, id) {
+  if (!_syncEnabled || !_firebaseUrl) return;
+  try {
+    const url = _firebaseUrl.replace(/\/$/, '') + '/' + collection + '/' + id + '.json'
+              + (_firebaseKey ? '?auth=' + _firebaseKey : '');
+    await fetch(url, { method: 'DELETE' });
+  } catch(e) {}
+}
+
+// ── Electronic Scale (Web Serial API) ───────────────────────────
+let _scalePort   = null;
+let _scaleReader = null;
+let _scaleWeight = 0;
+let _scaleCallbacks = [];
+
+async function connectScale() {
+  if (!navigator.serial) {
+    toast('Web Serial API غير مدعوم في هذا المتصفح', 'error');
+    return false;
+  }
+  try {
+    const baud = parseInt(await getSetting('scaleBaud')) || 9600;
+    _scalePort = await navigator.serial.requestPort();
+    await _scalePort.open({ baudRate: baud });
+    _readScaleLoop();
+    updateScaleStatus(true);
+    toast('تم الاتصال بالميزان ✅', 'success');
+    return true;
+  } catch(e) {
+    toast('فشل الاتصال بالميزان: ' + e.message, 'error');
+    return false;
+  }
+}
+
+async function _readScaleLoop() {
+  const decoder = new TextDecoderStream();
+  _scalePort.readable.pipeTo(decoder.writable);
+  _scaleReader = decoder.readable.getReader();
+  let buf = '';
+  while (true) {
+    try {
+      const { value, done } = await _scaleReader.read();
+      if (done) break;
+      buf += value;
+      const lines = buf.split(/\r?\n/);
+      buf = lines.pop();
+      for (const line of lines) {
+        const w = _parseScaleData(line.trim());
+        if (w !== null) {
+          _scaleWeight = w;
+          updateScaleDisplay(w);
+          _scaleCallbacks.forEach(cb => { try { cb(w); } catch(e){} });
+        }
+      }
+    } catch(e) { break; }
+  }
+}
+
+function _parseScaleData(raw) {
+  if (!raw) return null;
+  // Format: ST,GS,+000.000kg
+  let m = raw.match(/[+-]?\d+\.?\d*/);
+  if (m) {
+    const w = parseFloat(m[0]);
+    if (!isNaN(w) && w >= 0) return w;
+  }
+  return null;
+}
+
+function updateScaleDisplay(weight) {
+  const el = document.getElementById('saleScaleDisplay') || document.getElementById('scaleDisplay');
+  if (el) el.textContent = weight.toFixed(3) + ' kg';
+  const badge = document.getElementById('scaleWeightBadge');
+  if (badge) badge.textContent = weight.toFixed(3) + ' kg';
+}
+
+function updateScaleStatus(connected) {
+  const el = document.getElementById('scaleStatusIndicator');
+  if (el) {
+    el.textContent = connected ? '⚖️ متصل' : '⚖️ غير متصل';
+    el.style.color = connected ? 'var(--success)' : 'var(--text-secondary)';
+  }
+}
+
+function onScaleRead(callback) {
+  if (typeof callback === 'function') _scaleCallbacks.push(callback);
+}
+
+async function disconnectScale() {
+  try {
+    if (_scaleReader) await _scaleReader.cancel();
+    if (_scalePort)   await _scalePort.close();
+    _scalePort = _scaleReader = null;
+    updateScaleStatus(false);
+  } catch(e) {}
+}
+
+// ── SMS (Twilio / Vonage) ────────────────────────────────────────
+async function sendSMS(to, message) {
+  const provider = await getSetting('smsProvider') || '';
+  if (!provider || !to) return { ok: false, error: 'No provider or recipient' };
+  try {
+    if (provider === 'twilio') {
+      const sid   = await getSetting('twilioSID')   || '';
+      const token = await getSetting('twilioToken') || '';
+      const from  = await getSetting('twilioFrom')  || '';
+      const resp  = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
+        method : 'POST',
+        headers: {
+          'Authorization': 'Basic ' + btoa(sid + ':' + token),
+          'Content-Type' : 'application/x-www-form-urlencoded'
+        },
+        body: `To=${encodeURIComponent(to)}&From=${encodeURIComponent(from)}&Body=${encodeURIComponent(message)}`
+      });
+      const data = await resp.json();
+      return { ok: resp.ok, data };
+    }
+    if (provider === 'vonage') {
+      const apiKey    = await getSetting('vonageKey')    || '';
+      const apiSecret = await getSetting('vonageSecret') || '';
+      const from      = await getSetting('vonageFrom')   || 'POSDZ';
+      const resp = await fetch('https://rest.nexmo.com/sms/json', {
+        method : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body   : JSON.stringify({ api_key: apiKey, api_secret: apiSecret, to, from, text: message })
+      });
+      const data = await resp.json();
+      return { ok: resp.ok, data };
+    }
+  } catch(e) {
+    return { ok: false, error: e.message };
+  }
+  return { ok: false, error: 'Unknown provider' };
+}
+
+async function sendDebtReminderSMS(customer) {
+  if (!customer || !customer.phone) return;
+  const storeName = await getSetting('storeName') || 'المتجر';
+  const debt = customer.debt || 0;
+  const msg = `${storeName}: عزيزي ${customer.name}، لديك دين بقيمة ${formatMoney(debt)}. يرجى التسديد. شكراً.`;
+  return sendSMS(customer.phone, msg);
+}
+
+// ── Email (EmailJS / SendGrid) ───────────────────────────────────
+async function sendEmail(to, subject, htmlBody) {
+  const provider = await getSetting('emailProvider') || '';
+  if (!provider || !to) return { ok: false, error: 'No provider or recipient' };
+  try {
+    if (provider === 'sendgrid') {
+      const apiKey = await getSetting('sendgridKey') || '';
+      const from   = await getSetting('emailFrom')   || 'noreply@posdz.com';
+      const resp   = await fetch('https://api.sendgrid.com/v3/mail/send', {
+        method : 'POST',
+        headers: { 'Authorization': 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
+        body   : JSON.stringify({
+          personalizations: [{ to: [{ email: to }] }],
+          from: { email: from },
+          subject,
+          content: [{ type: 'text/html', value: htmlBody }]
+        })
+      });
+      return { ok: resp.ok };
+    }
+    if (provider === 'emailjs') {
+      const serviceId  = await getSetting('emailjsService')  || '';
+      const templateId = await getSetting('emailjsTemplate') || '';
+      const userId     = await getSetting('emailjsUser')     || '';
+      const resp = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
+        method : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body   : JSON.stringify({
+          service_id: serviceId, template_id: templateId, user_id: userId,
+          template_params: { to_email: to, subject, html_body: htmlBody }
+        })
+      });
+      return { ok: resp.ok };
+    }
+  } catch(e) {
+    return { ok: false, error: e.message };
+  }
+  return { ok: false, error: 'Unknown email provider' };
+}
+
+async function sendInvoiceEmail(customer, sale, items) {
+  if (!customer || !customer.email) return;
+  const storeName = await getSetting('storeName') || 'POS DZ';
+  const currency  = await getSetting('currency')  || 'DA';
+  const rows = items.map(i =>
+    `<tr><td>${i.productName||i.name}</td><td>${i.qty}</td><td>${i.unitPrice||i.price} ${currency}</td><td>${((i.qty)*(i.unitPrice||i.price)).toFixed(2)} ${currency}</td></tr>`
+  ).join('');
+  const html = `
+    <div dir="rtl" style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">
+      <h2 style="color:#7C3AED;">${storeName}</h2>
+      <p>فاتورة رقم: <b>${sale.invoiceNum || '#'}</b> — ${new Date(sale.date).toLocaleDateString('ar')}</p>
+      <table border="1" style="width:100%;border-collapse:collapse;">
+        <thead style="background:#f3f4f6;"><tr><th>المنتج</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      ${sale.discount > 0 ? `<p>الخصم: <b>-${sale.discount} ${currency}</b></p>` : ''}
+      <h3>المجموع: ${sale.total} ${currency}</h3>
+      <p style="color:#888;font-size:12px;">POS DZ v7.0.0 | شكراً لتسوقك معنا</p>
+    </div>`;
+  return sendEmail(customer.email, `فاتورة ${storeName} — ${sale.invoiceNum}`, html);
+}
+
+// ── Customer Classification ──────────────────────────────────────
+async function classifyCustomer(customer) {
+  if (!customer) return { cls: '', badge: '', label: '' };
+  const sales    = await dbGetByIndex('saleItems', 'customerId', customer.id).catch(() => []);
+  const debtRec  = (await dbGetByIndex('debts', 'customerId', customer.id).catch(() => []))[0];
+  const debt     = debtRec ? (debtRec.amount || 0) : 0;
+  const allSales = (await dbGetAll('sales').catch(() => [])).filter(s => s.customerId === customer.id);
+  const totalBought = allSales.reduce((s, x) => s + (x.total || 0), 0);
+  const lastSale    = allSales.sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+  const daysSince   = lastSale
+    ? Math.floor((Date.now() - new Date(lastSale.date)) / 86400000) : 9999;
+
+  let cls = 'active', badge = '🟢', label = 'نشط';
+  if (totalBought >= 50000)   { cls = 'vip';      badge = '👑'; label = 'VIP'; }
+  else if (debt > 0 && daysSince > 30) { cls = 'debtor'; badge = '🔴'; label = 'مدين'; }
+  else if (daysSince > 90)    { cls = 'sleeping'; badge = '😴'; label = 'نائم'; }
+  else if (daysSince > 30)    { cls = 'medium';   badge = '🟡'; label = 'متوسط'; }
+
+  return { cls, badge, label, totalBought, totalDebt: debt, daysSinceVisit: daysSince, invoiceCount: allSales.length };
+}
+
+// ── Product Classification ───────────────────────────────────────
+async function classifyProduct(product) {
+  if (!product) return { cls: 'good', badge: '🟢', label: 'جيد' };
+  const stock  = product.stock  || 0;
+  const minQty = product.minQty || 5;
+  const expiry = product.expiryDate || null;
+
+  let daysToExpiry = Infinity;
+  if (expiry) daysToExpiry = Math.floor((new Date(expiry) - Date.now()) / 86400000);
+
+  const sales = await dbGetAll('saleItems').catch(() => []);
+  const totalSold = sales.filter(s => s.productId === product.id).reduce((s, x) => s + (x.qty || 0), 0);
+
+  let cls = 'good', badge = '🟢', label = 'جيد';
+  if (daysToExpiry < 0)          { cls = 'expired';  badge = '🚫'; label = 'منتهي'; }
+  else if (daysToExpiry <= 30)   { cls = 'expiring'; badge = '⚠️'; label = 'قريب الانتهاء'; }
+  else if (stock <= 0)           { cls = 'empty';    badge = '🔴'; label = 'نفذ'; }
+  else if (stock <= minQty)      { cls = 'low';      badge = '🟡'; label = 'منخفض'; }
+  else if (totalSold >= 50)      { cls = 'top';      badge = '⭐'; label = 'الأكثر مبيعاً'; }
+
+  return { cls, badge, label, totalSold };
+}
+
+// ── Notification panel toggle (v7 uses _toggleNotifPanel) ───────
+function toggleNotifPanel() {
+  _toggleNotifPanel();
+}
+
+// ── openVKB / closeVKB v7 ───────────────────────────────────────
+// New v7 VKB container support (used by pages with id="vkbContainer")
+let _vkbTarget = null;
+let _vkbLang   = 'ar';
+let _vkbShift  = false;
+let _vkbSymbols = false;
+
+const VKB_LAYOUTS = {
+  ar:    ['ض ص ث ق ف غ ع ه خ ح ج', 'ش س ي ب ل ا ت ن م ك ط', 'ز و ة ى ر ذ ئ ء ؤ إ أ'],
+  fr:    ['a z e r t y u i o p', 'q s d f g h j k l m', 'w x c v b n'],
+  en:    ['q w e r t y u i o p', 'a s d f g h j k l', 'z x c v b n m'],
+  arSh:  ['ض ص ث ق ف غ ع ه خ ح ج', 'ش س ي ب ل ا ت ن م ك ط', 'ز و ة ى ر ذ ئ ء ؤ إ أ'],
+  frSh:  ['A Z E R T Y U I O P', 'Q S D F G H J K L M', 'W X C V B N'],
+  enSh:  ['Q W E R T Y U I O P', 'A S D F G H J K L', 'Z X C V B N M'],
+  sym:   ['1 2 3 4 5 6 7 8 9 0', '! @ # $ % ^ & * ( )', '- _ = + [ ] { } ; :'],
+};
+
+function _buildVKB() {
+  const c = document.getElementById('vkbContainer');
+  if (!c) return;
+  const lang   = _vkbLang;
+  const key    = _vkbSymbols ? 'sym' : (_vkbShift ? lang + 'Sh' : lang);
+  const layout = VKB_LAYOUTS[key] || VKB_LAYOUTS[lang] || VKB_LAYOUTS['ar'];
+
+  c.style.display = 'flex';
+  c.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 14px;background:var(--bg-dark);border-radius:18px 18px 0 0;cursor:move;" id="vkbTopBar">
+      <span style="font-size:.85rem;color:var(--primary-light);font-weight:700;">⌨ POS DZ</span>
+      <div style="display:flex;gap:6px;align-items:center;">
+        <button onclick="setVKBLang('ar')" style="padding:2px 10px;border-radius:12px;border:1px solid var(--border);background:${lang==='ar'?'var(--primary)':'transparent'};color:${lang==='ar'?'#fff':'var(--text-secondary)'};cursor:pointer;font-family:'Cairo',sans-serif;font-size:.75rem;">ع</button>
+        <button onclick="setVKBLang('fr')" style="padding:2px 10px;border-radius:12px;border:1px solid var(--border);background:${lang==='fr'?'var(--primary)':'transparent'};color:${lang==='fr'?'#fff':'var(--text-secondary)'};cursor:pointer;font-family:'Cairo',sans-serif;font-size:.75rem;">FR</button>
+        <button onclick="setVKBLang('en')" style="padding:2px 10px;border-radius:12px;border:1px solid var(--border);background:${lang==='en'?'var(--primary)':'transparent'};color:${lang==='en'?'#fff':'var(--text-secondary)'};cursor:pointer;font-family:'Cairo',sans-serif;font-size:.75rem;">EN</button>
+        <button onclick="closeVKB()" style="background:var(--danger);border:none;color:#fff;width:26px;height:26px;border-radius:50%;cursor:pointer;font-weight:900;font-size:.9rem;">✕</button>
+      </div>
+    </div>
+    <div style="padding:10px 12px 14px;" id="vkbKeys">
+      ${layout.map(row =>
+        `<div style="display:flex;gap:5px;justify-content:center;margin-bottom:5px;">${
+          row.split(' ').map(k => `<button onclick="vkbPressV7('${k}')" style="min-width:36px;height:40px;padding:0 6px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;color:var(--text-primary);font-size:1rem;font-family:'Cairo',sans-serif;cursor:pointer;transition:background .12s;flex:1;max-width:50px;" onmouseover="this.style.background='var(--primary)';this.style.color='#fff'" onmouseout="this.style.background='var(--bg-card)';this.style.color='var(--text-primary)'">${k}</button>`).join('')
+        }</div>`
+      ).join('')}
+      <div style="display:flex;gap:5px;justify-content:center;margin-top:4px;">
+        <button onclick="vkbPressV7('SHIFT')" style="flex:1;height:38px;background:${_vkbShift?'var(--primary)':'var(--bg-input)'};border:1px solid var(--border);border-radius:8px;color:var(--text-primary);cursor:pointer;font-size:.9rem;">⇧</button>
+        <button onclick="vkbPressV7('SPACE')" style="flex:4;height:38px;background:var(--bg-input);border:1px solid var(--border);border-radius:8px;color:var(--text-secondary);cursor:pointer;font-size:.8rem;">${lang==='ar'?'مسافة':lang==='fr'?'espace':'space'}</button>
+        <button onclick="vkbPressV7('#')" style="flex:1;height:38px;background:${_vkbSymbols?'var(--primary)':'var(--bg-input)'};border:1px solid var(--border);border-radius:8px;color:var(--text-primary);cursor:pointer;font-size:.9rem;">#&</button>
+        <button onclick="vkbPressV7('BACKSPACE')" style="flex:1;height:38px;background:rgba(239,68,68,.15);border:1px solid rgba(239,68,68,.3);border-radius:8px;color:var(--danger);cursor:pointer;font-size:1rem;">⌫</button>
+        <button onclick="vkbPressV7('ENTER')" style="flex:1.5;height:38px;background:var(--primary);border:none;border-radius:8px;color:#fff;cursor:pointer;font-size:.85rem;font-weight:700;">↵</button>
+      </div>
+      ${lang !== 'ar' ? `<div style="display:flex;gap:4px;justify-content:center;margin-top:4px;">${'0123456789'.split('').map(d=>`<button onclick="vkbPressV7('${d}')" style="flex:1;height:34px;background:var(--bg-card);border:1px solid var(--border);border-radius:7px;color:var(--text-primary);font-size:.95rem;cursor:pointer;">${d}</button>`).join('')}</div>` : ''}
+    </div>`;
+
+  // Make draggable
+  const bar = document.getElementById('vkbTopBar');
+  if (bar) {
+    let startX = 0, startLeft = 0;
+    bar.onmousedown = (e) => {
+      startX = e.clientX;
+      startLeft = c.getBoundingClientRect().left;
+      const move = (ev) => {
+        const dx = ev.clientX - startX;
+        c.style.left = (startLeft + dx) + 'px';
+        c.style.transform = 'none';
+      };
+      const up = () => { document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up); };
+      document.addEventListener('mousemove', move);
+      document.addEventListener('mouseup', up);
+    };
+  }
+}
+
+function vkbPressV7(key) {
+  const target = _vkbTarget || document.activeElement;
+  if (key === 'BACKSPACE') {
+    if (target && target.value !== undefined) {
+      const s = target.selectionStart || target.value.length;
+      target.value = target.value.slice(0, Math.max(0, s - 1)) + target.value.slice(s);
+      target.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+  } else if (key === 'ENTER') {
+    target?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    target?.closest('form')?.submit?.();
+  } else if (key === 'SPACE') {
+    if (target && target.value !== undefined) {
+      target.value += ' ';
+      target.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+  } else if (key === 'SHIFT') {
+    _vkbShift = !_vkbShift;
+    _vkbSymbols = false;
+    _buildVKB();
+  } else if (key === '#') {
+    _vkbSymbols = !_vkbSymbols;
+    _vkbShift = false;
+    _buildVKB();
+  } else {
+    if (target && target.value !== undefined) {
+      target.value += key;
+      target.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    if (_vkbShift) { _vkbShift = false; _buildVKB(); }
+  }
+}
+
+function setVKBLang(lang) {
+  _vkbLang = lang;
+  _vkbShift = false;
+  _vkbSymbols = false;
+  _buildVKB();
+}
+
+function openVKB(targetEl) {
+  _vkbTarget = targetEl || document.activeElement;
+  _vkbShift = false;
+  _vkbSymbols = false;
+  _buildVKB();
+}
+
+function closeVKB() {
+  const c = document.getElementById('vkbContainer');
+  if (c) c.style.display = 'none';
+  _vkbTarget = null;
+}
+
+// Auto-attach VKB to inputs if setting enabled
+document.addEventListener('focusin', async (e) => {
+  const el = e.target;
+  if (!['INPUT','TEXTAREA'].includes(el.tagName)) return;
+  if (el.type === 'date' || el.type === 'file' || el.type === 'checkbox' || el.type === 'radio') return;
+  _vkbTarget = el;
+  const auto = await getSetting('touchKeyboard').catch(() => '0');
+  if (auto === '1') openVKB(el);
+});
+
+// ── i18n init ───────────────────────────────────────────────────
+// Load language on startup (called from initApp override below)
+(async () => {
+  try {
+    const lang = await getSetting('language') || 'ar';
+    _currentLang = lang;
+    await setLanguage(lang, false);
+  } catch(e) {}
+})();
